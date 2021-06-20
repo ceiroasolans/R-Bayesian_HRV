@@ -1,0 +1,62 @@
+---
+title: "Automated Bayesian"
+author: "Conrado Eiroa-Solans"
+output: html_document
+---
+
+Automated, Multilevel Bayesian Regression 
+```{r}
+library(bayestestR) 
+
+#Create flexible variables
+varlist = hrv_inddiff %>%select(starts_with(c("derssf_general", "erqc_cr", "erqc_es")))
+varlist = names(varlist)
+
+#Automate the model
+bmodel <- lapply(varlist, function(x) {
+  brm(substitute(scale(RMSSD, scale=TRUE) ~ 1 + scale(i, scale=TRUE) + (1 + scale(i, scale=TRUE) | id), 
+                 list(i = as.name(x))), 
+      data = relevant_data, family = gaussian,
+      prior = c(prior(normal(0,1), class = Intercept),
+              prior(normal(0,1), class = b),
+              prior(cauchy(0,2), class = sigma)),
+      iter = 4000, warmup = 2000, chains = 4, cores = 4,
+      control = list(adapt_delta = 0.99))
+})
+
+
+#Add all relevant output to formatted df
+results = list()
+for (i in 1:length(bmodel)) {
+  results[[i]] = rbind(fixef(bmodel[[i]]))}
+
+results_df = data.frame()
+for (i in 1:length(results)){     #assign relevant results from list to new dataframe
+  temp = data.frame(results[[i]])
+  results_df = rbind(results_df, temp)}
+
+results_df = results_df[-(seq(1,nrow(results_df),2)),] #remove intercept data lines
+results_df = format(round(results_df, 2), nsmall = 2)
+
+
+#Create new table with only trending results
+trends  = data_frame()
+for (i in 1:nrow(results_df)) {   #if distance between estimate and 0  > s.error...
+  if (abs(as.numeric(results_df[[i,1]])) >= (as.numeric(results_df[[i,2]]))) {
+    temporary = data.frame(results_df[i,])  #in other words, select if result is > 1 SD away from mean
+    trends = rbind(trends, temporary)}}
+
+
+#Produce table with conditional effects
+equivalence_results = list()
+for (i in 1:length(bmodel)) {
+  equivalence_results[[i]] = rbind(equivalence_test(bmodel[[i]], ci = 0.95))}
+    
+equivalence_df = data.frame()
+for (i in 1:length(equivalence_results)){     #assign relevant results from list to new dataframe
+  temp = data.frame(equivalence_results[[i]])
+  equivalence_df = rbind(equivalence_df, temp)}
+
+equivalence_df = equivalence_df[-(seq(1,nrow(equivalence_df),2)),] #remove intercept data lines
+equivalence_df = cbind((equivalence_df[,1]),(equivalence_df[,5]), (equivalence_df[,6]))
+
